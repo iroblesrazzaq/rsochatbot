@@ -14,3 +14,7 @@ Create blueprint vector database
 
 Scrape listhost, create vector database that constantly updates
  - filter through listhosts to ignore irrelevant data, ex 2016 medschool alums
+
+
+
+Idea: add ig if they have one?
