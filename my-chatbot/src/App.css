@@ -1,0 +1,82 @@
+/* Reset default styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Main app container */
+.app-container {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* Textarea auto-resize */
+textarea {
+  min-height: 44px;
+  max-height: 200px;
+  resize: none;
+  overflow-y: auto;
+}
+
+/* Message transitions */
+.message-enter {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.message-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #343541;
+    color: #FFFFFF;
+  }
+  
+  .dark-mode {
+    background-color: #343541;
+  }
+  
+  .dark-mode .message-bubble {
+    background-color: #444654;
+  }
+  
+  .dark-mode .user-message {
+    background-color: #343541;
+  }
+  
+  .dark-mode textarea {
+    background-color: #40414F;
+    color: #FFFFFF;
+    border-color: #565869;
+  }
+  
+  .dark-mode .sidebar {
+    background-color: #202123;
+  }
+}
