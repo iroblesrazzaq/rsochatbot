@@ -4,11 +4,11 @@ Project to create chatbot capable of guiding students to RSOs and other organiza
 
 TODO:
 
-Scrape blueprint data
+Scrape blueprint data ✅
 
-Categorize data using LLMs?
+Categorize data using LLMs? ✅
 
-Create blueprint vector database
+Create blueprint vector database ✅
 
 
 
