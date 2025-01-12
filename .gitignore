@@ -3,3 +3,4 @@ login.json
 token.pickle
 listhost_login.log
 .env
+*json
