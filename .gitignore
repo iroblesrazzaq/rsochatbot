@@ -5,3 +5,4 @@ listhost_login.log
 .env
 *json
 !categorized_rsos.json
+!categorized_rsos2.json
