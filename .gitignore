@@ -4,3 +4,4 @@ token.pickle
 listhost_login.log
 .env
 *json
+!categorized_rsos.json
