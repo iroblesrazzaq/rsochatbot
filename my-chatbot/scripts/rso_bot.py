@@ -9,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 import time
+from typing import List, Dict, Optional, Any, Union
 
 # Set up logging with more detailed format
 logging.basicConfig(
@@ -29,89 +30,65 @@ load_dotenv(dotenv_path=env_path)
 _bot_instance = None
 
 class RSORagBot:
-    def __init__(self, pinecone_api_key=None, pinecone_index_name=None, groq_api_key=None):
+    def __init__(self, pinecone_api_key: Optional[str] = None, 
+                 pinecone_index_name: Optional[str] = None, 
+                 groq_api_key: Optional[str] = None):
+        """
+        Initialize the RSO bot with API keys and necessary clients
+        """
         try:
-            start_time = time.time()
-            logger.info("Starting RSORagBot initialization...")
-            
+            # Get API keys from parameters or environment
             self.pinecone_api_key = pinecone_api_key or os.getenv('PINECONE_API_KEY')
             self.groq_api_key = groq_api_key or os.getenv('GROQ_API_KEY')
-            self.pinecone_index_name = pinecone_index_name or "rso-chatbot"
-            
+            self.pinecone_index_name = pinecone_index_name or os.getenv('PINECONE_INDEX_NAME', 'rso-chatbot')
+
             if not self.pinecone_api_key:
                 raise ValueError("Pinecone API key not found")
             if not self.groq_api_key:
                 raise ValueError("Groq API key not found")
-            
-            logger.info("Connecting to Pinecone...")
+
+            # Initialize Pinecone
             self.pc = pinecone.Pinecone(api_key=self.pinecone_api_key)
             self.index = self.pc.Index(self.pinecone_index_name)
-            logger.info("Pinecone connection established")
             
-            logger.info("Loading embedding model...")
+            # Initialize embedding model
             self.embed_model = SentenceTransformer('all-mpnet-base-v2')
-            logger.info("Embedding model loaded")
             
-            logger.info("Initializing Groq client...")
+            # Initialize Groq client
             self.groq_client = Groq(api_key=self.groq_api_key)
-            logger.info("Groq client initialized")
             
+            # Define system prompt
             self.system_prompt = """You are a knowledgeable and helpful assistant for University of Chicago students, 
-        specializing in Registered Student Organizations (RSOs). Your role is to help students learn about and 
-        engage with RSOs by:
+            specializing in Registered Student Organizations (RSOs). Your role is to help students learn about and 
+            engage with RSOs by:
 
-        - Providing accurate, detailed information about specific RSOs, only when asked
-        - Recommending relevant RSOs based on students' interests and preferences, only when asked
-        - Explaining RSO activities, events, and opportunities
+            - Providing accurate, detailed information about specific RSOs when asked
+            - Recommending relevant RSOs based on students' interests and preferences
+            - Explaining RSO activities, events, and opportunities
+            - Helping with general RSO-related questions
+            - Clarifying any confusion about RSOs or the membership process
 
-        Focus on the specific information or guidance the student is seeking."""
-            
-            init_time = time.time() - start_time
-            logger.info(f"RSORagBot initialization completed in {init_time:.2f} seconds")
-            
+            Focus on addressing the student's specific question while maintaining a helpful and informative tone.
+            If you're not sure about specific details, be honest about what you don't know."""
+
         except Exception as e:
-            logger.error(f"Error during initialization: {str(e)}", exc_info=True)
+            logger.error(f"Initialization error: {str(e)}", exc_info=True)
             raise
 
-    def analyze_query_intent(self, query):
-        """Analyze the query to determine the type of response needed"""
-        try:
-            logger.info(f"Analyzing query intent: {query}")
+    def get_relevant_rsos(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """
+        Get relevant RSOs based on the query
+        
+        Args:
+            query: The search query
+            top_k: Number of results to return
             
-            intent_prompt = f"""Analyze this student query: "{query}"
-            Determine the type of question and what information is needed to provide a helpful response.
-            Return your analysis in JSON format with these fields:
-            - query_type: [specific_info, comparison, recommendation, general_info, other]
-            - needs_rso_lookup: boolean
-            - search_terms: list of relevant terms if RSO lookup needed
-            - specific_rso_names: list of any specific RSOs mentioned
-            - clarification_needed: boolean
-            - follow_up_question: string if clarification needed"""
-
-            response = self.groq_client.chat.completions.create(
-                messages=[
-                    {"role": "user", "content": intent_prompt}
-                ],
-                model="mixtral-8x7b-32768",
-                temperature=0.3
-            )
-
-            intent_analysis = json.loads(response.choices[0].message.content)
-            logger.info(f"Query intent analysis: {intent_analysis}")
-            return intent_analysis
-
-        except Exception as e:
-            logger.error(f"Error in analyze_query_intent: {str(e)}", exc_info=True)
-            return None
-
-    def get_relevant_rsos(self, query, top_k=5):
-        """Get relevant RSOs based on query"""
+        Returns:
+            List of matching RSOs with their metadata
+        """
         try:
-            start_time = time.time()
-            logger.info(f"Getting relevant RSOs for query: {query}")
-            
+            logger.info(f"Searching for RSOs with query: {query}")
             query_embedding = self.embed_model.encode(query).tolist()
-            logger.info("Query embedding created")
             
             results = self.index.query(
                 vector=query_embedding,
@@ -119,122 +96,107 @@ class RSORagBot:
                 include_metadata=True
             )
             
-            query_time = time.time() - start_time
-            logger.info(f"Found {len(results.matches)} matching RSOs in {query_time:.2f} seconds")
-            
+            logger.info(f"Found {len(results.matches)} matching RSOs")
             return results.matches
+            
         except Exception as e:
             logger.error(f"Error in get_relevant_rsos: {str(e)}", exc_info=True)
-            raise
+            return []
 
-    def get_specific_rso_info(self, rso_name):
-        """Get detailed information about a specific RSO"""
-        try:
-            # Encode the RSO name and search
-            query_embedding = self.embed_model.encode(rso_name).tolist()
-            results = self.index.query(
-                vector=query_embedding,
-                top_k=3,
-                include_metadata=True
-            )
+    def format_context(self, relevant_rsos: List[Dict[str, Any]]) -> str:
+        """
+        Format RSO information into a context string for the LLM
+        
+        Args:
+            relevant_rsos: List of RSO matches with metadata
             
-            # Return the best match if score is high enough
-            if results.matches and results.matches[0].score > 0.8:
-                return results.matches[0].metadata
-            return None
-        except Exception as e:
-            logger.error(f"Error in get_specific_rso_info: {str(e)}", exc_info=True)
-            return None
-
-    def format_context(self, relevant_rsos):
-        """Format RSO information into readable context"""
-        logger.info("Formatting RSO context")
+        Returns:
+            Formatted context string
+        """
         try:
             if not relevant_rsos:
-                return "No RSOs found that match the query."
+                return "No relevant RSOs found in the database."
             
-            context = "Here are the relevant RSOs:\n\n"
+            context = "Here is the RSO information:\n\n"
             
             for rso in relevant_rsos:
                 metadata = rso.metadata
-                context += f"Name: {metadata.get('name', 'N/A')}\n"
-                context += f"Description: {metadata.get('description', 'N/A')}\n"
-                context += f"Categories: {', '.join(metadata.get('categories', []))}\n"
-                contact = metadata.get('contact_email', 'N/A')
-                context += f"Contact: {contact}\n"
-                if metadata.get('social_media_links'):
-                    context += f"Social Media: {', '.join(metadata['social_media_links'])}\n"
-                if metadata.get('meeting_times'):
-                    context += f"Meeting Times: {metadata['meeting_times']}\n"
-                if metadata.get('additional_info'):
-                    context += f"Additional Info: {metadata['additional_info']}\n"
-                context += f"Website: {metadata.get('full_url', 'N/A')}\n\n"
+                try:
+                    # Required fields
+                    context += f"Name: {metadata.get('name', 'N/A')}\n"
+                    context += f"Description: {metadata.get('description', 'N/A')}\n"
+                    
+                    # Optional fields with validation
+                    categories = metadata.get('categories', [])
+                    if categories and isinstance(categories, list):
+                        context += f"Categories: {', '.join(categories)}\n"
+                    
+                    contact = metadata.get('contact_email')
+                    if contact and contact.lower() not in ['none', 'n/a', '']:
+                        context += f"Contact: {contact}\n"
+                    
+                    social_media = metadata.get('social_media_links', [])
+                    if social_media and isinstance(social_media, list):
+                        context += f"Social Media: {', '.join(social_media)}\n"
+                    
+                    additional_info = metadata.get('additional_info', [])
+                    if additional_info and isinstance(additional_info, list):
+                        context += f"Additional Info: {', '.join(additional_info)}\n"
+                    
+                    website = metadata.get('full_url')
+                    if website and website.lower() not in ['none', 'n/a', '']:
+                        context += f"Website: {website}\n"
+                    
+                    context += "\n"
+                    
+                except Exception as e:
+                    logger.error(f"Error formatting RSO metadata: {str(e)}", exc_info=True)
+                    continue
             
             return context
             
         except Exception as e:
-            logger.error(f"Error in format_context: {str(e)}")
-            raise
+            logger.error(f"Error in format_context: {str(e)}", exc_info=True)
+            return "Error formatting RSO information."
 
-    def generate_response(self, query):
-        """Generate a response based on the query"""
+    def generate_response(self, query: str) -> str:
+        """
+        Generate a response based on the query and relevant RSO information
+        
+        Args:
+            query: The user's question or request
+            
+        Returns:
+            Generated response string
+        """
         try:
-            start_time = time.time()
-            logger.info(f"Generating response for query: {query}")
+            # Normalize query
+            normalized_query = query.lower().replace('club', 'rso')
+            logger.info(f"Original query: {query}")
+            logger.info(f"Normalized query: {normalized_query}")
+
+            # Get relevant RSOs
+            relevant_rsos = self.get_relevant_rsos(normalized_query)
             
-            # First, analyze the query intent
-            intent = self.analyze_query_intent(query)
-            if not intent:
-                return "I'm having trouble understanding your question. Could you please rephrase it?"
+            # Format context
+            context = self.format_context(relevant_rsos)
             
-            context = ""
-            if intent.get('needs_rso_lookup'):
-                # Get RSO information based on search terms
-                search_terms = " ".join(intent.get('search_terms', []))
-                relevant_rsos = self.get_relevant_rsos(search_terms or query)
-                context += self.format_context(relevant_rsos)
+            # Construct prompt
+            prompt = f"""Here is a student's question about UChicago RSOs: "{query}"
+
+            Based on the query, here are relevant RSOs from our database:
+
+            {context}
+
+            Please provide a natural, conversational response that:
+            1. Directly addresses their specific question or need
+            2. Only mentions RSOs that are truly relevant to their query
+            3. Provides specific, actionable information when available
+            4. Acknowledges if the available information might not fully answer their question
+
+            If their question isn't about finding RSOs, focus on answering their question rather than listing RSOs."""
             
-            # For specific RSO questions, get detailed info
-            if intent.get('specific_rso_names'):
-                for rso_name in intent['specific_rso_names']:
-                    rso_info = self.get_specific_rso_info(rso_name)
-                    if rso_info:
-                        context += f"\nDetailed information for {rso_name}:\n"
-                        for key, value in rso_info.items():
-                            if value:  # Only include non-empty fields
-                                context += f"{key}: {value}\n"
-                        context += "\n"
-
-            # Construct the appropriate prompt based on query type
-            if intent.get('query_type') == 'specific_info':
-                prompt = f"""The student is asking for specific information: "{query}"
-                Here's the RSO information we have:
-                {context}
-                Please answer their specific question directly."""
-
-            elif intent.get('query_type') == 'comparison':
-                prompt = f"""The student wants to compare RSOs: "{query}"
-                Here's the information about the relevant RSOs:
-                {context}
-                Please compare these RSOs, highlighting key differences and similarities."""
-
-            elif intent.get('query_type') == 'recommendation':
-                prompt = f"""The student is looking for RSO recommendations based on: "{query}"
-                Here are potentially relevant RSOs:
-                {context}
-                Please provide personalized recommendations based on their interests."""
-
-            else:
-                prompt = f"""The student asks: "{query}"
-                Here's relevant RSO information:
-                {context}
-                Please provide a helpful response that directly addresses their question."""
-
-            # Add clarification if needed
-            if intent.get('clarification_needed'):
-                prompt += f"\nAlso, kindly ask this follow-up question: {intent['follow_up_question']}"
-
-            logger.info("Sending request to Groq")
+            # Get response from Groq
             response = self.groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": self.system_prompt},
@@ -245,26 +207,27 @@ class RSORagBot:
                 max_tokens=1024
             )
             
-            total_time = time.time() - start_time
-            logger.info(f"Response generated in {total_time:.2f} seconds")
-            
             return response.choices[0].message.content
             
         except Exception as e:
             logger.error(f"Error in generate_response: {str(e)}", exc_info=True)
-            return f"Error: {str(e)}"
+            return f"I apologize, but I encountered an error while processing your question. Please try asking again or rephrase your question."
 
-def get_bot_instance():
+def get_bot_instance() -> RSORagBot:
     """Get or create a singleton instance of RSORagBot"""
     global _bot_instance
     if _bot_instance is None:
-        logger.info("Creating new RSORagBot instance")
-        _bot_instance = RSORagBot()
+        try:
+            logger.info("Creating new RSORagBot instance")
+            _bot_instance = RSORagBot()
+            logger.info("RSORagBot instance created successfully")
+        except Exception as e:
+            logger.error(f"Error creating RSORagBot instance: {str(e)}", exc_info=True)
+            raise
     return _bot_instance
 
-def main():
+def main() -> None:
     """Main function to handle command line queries"""
-    logger.info("Starting RSO bot main function")
     try:
         if len(sys.argv) < 2:
             error_msg = {"error": "No query provided"}
