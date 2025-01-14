@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# scripts/openai_bot.py
-
+#!/usr/bin/env python3
+import pinecone
+from sentence_transformers import SentenceTransformer
 import os
 import sys
 import json
@@ -10,9 +11,13 @@ from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 from openai import OpenAI
 import tiktoken
-from collections import defaultdict
-import pickle
+import time
+import asyncio
 from functools import lru_cache
+import threading
+
+# Set environment variable to handle tokenizer warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Set up logging
 logging.basicConfig(
@@ -22,145 +27,128 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class ContextManager:
-    """Handles context processing and caching for the ChatBot."""
+class ModelCache:
+    """Singleton class to cache models and expensive operations"""
+    _instance = None
+    _lock = threading.Lock()
     
-    def __init__(self, json_file: str):
-        self.json_file = json_file
-        self.cache_file = Path(f"{json_file}_context.pkl")
-        self.max_context_tokens = 120000
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialize()
+            return cls._instance
+    
+    def _initialize(self):
+        """Initialize models and connections once"""
+        logger.info("Initializing model cache...")
+        self.embed_model = SentenceTransformer('all-mpnet-base-v2')
         self.tokenizer = tiktoken.encoding_for_model("gpt-4")
-        
-    def _load_json_data(self) -> List[Dict[str, Any]]:
-        """Load RSO data from JSON file."""
-        script_dir = Path(__file__).parent.absolute()
-        json_path = script_dir / f"{self.json_file}.json"
-        
-        if not json_path.exists():
-            raise FileNotFoundError(f"JSON file not found: {json_path}")
-            
-        with open(json_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        logger.info("Model cache initialization complete")
 
-    def _process_rso_data(self, rso_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-        """Process RSO data into category groups with optimized structure."""
-        category_groups = defaultdict(list)
-        
-        for rso in rso_data:
-            categories = rso.get('categories', [])
-            if not categories:
-                ai_cats = rso.get('ai_categories', [])
-                if ai_cats:
-                    categories = [max(ai_cats, key=lambda x: x['confidence'])['name']]
-                else:
-                    categories = ['Uncategorized']
-            
-            # Create a streamlined RSO entry with only necessary fields
-            processed_rso = {
-                'name': rso.get('name', 'N/A'),
-                'description': rso.get('full_description') or rso.get('description_preview', 'N/A'),
-                'website': rso.get('full_url'),
-                'contact': rso.get('contact', {}).get('email'),
-                'social_media': {k: v for k, v in rso.get('social_media', {}).items() if v and v.lower() not in ['none', 'n/a', '']},
-                'meetings': rso.get('additional_info', {}).get('Regular Meetings (Day/Time/Location):')
-            }
-            
-            for category in categories:
-                category_groups[category].append(processed_rso)
-                
-        return dict(category_groups)
-
-    def _format_context(self, category_groups: Dict[str, List[Dict[str, Any]]]) -> str:
-        """Format processed data into context string."""
-        context_parts = ["Here is the information about UChicago RSOs (Registered Student Organizations) by category:\n\n"]
-        
-        for category, rsos in category_groups.items():
-            category_section = [f"Category: {category}\n"]
-            
-            for rso in rsos:
-                rso_info = [f"\nName: {rso['name']}",
-                           f"Description: {rso['description']}"]
-                
-                if rso['website']:
-                    rso_info.append(f"Website: {rso['website']}")
-                if rso['contact']:
-                    rso_info.append(f"Contact: {rso['contact']}")
-                if rso['social_media']:
-                    links = [f"{platform}: {url}" for platform, url in rso['social_media'].items()]
-                    rso_info.append(f"Social Media: {', '.join(links)}")
-                if rso['meetings']:
-                    rso_info.append(f"Meetings: {rso['meetings']}")
-                    
-                rso_info.append("---")
-                category_section.append("\n".join(rso_info))
-                
-            context_parts.append("\n".join(category_section))
-            
-        return "\n\n".join(context_parts)
-
-    def get_processed_context(self) -> str:
-        """Get processed context, using cache if available."""
-        try:
-            if self.cache_file.exists():
-                with open(self.cache_file, 'rb') as f:
-                    context = pickle.load(f)
-                    logger.info("Loaded context from cache")
-                    return context
-        except Exception as e:
-            logger.warning(f"Cache load failed, regenerating context: {e}")
-
-        # Process context from scratch
-        rso_data = self._load_json_data()
-        category_groups = self._process_rso_data(rso_data)
-        context = self._format_context(category_groups)
-        
-        # Truncate if necessary
-        tokens = self.tokenizer.encode(context)
-        if len(tokens) > self.max_context_tokens:
-            logger.warning(f"Context too long ({len(tokens)} tokens). Truncating...")
-            context = self.tokenizer.decode(tokens[:self.max_context_tokens])
-        
-        # Save to cache
-        try:
-            with open(self.cache_file, 'wb') as f:
-                pickle.dump(context, f)
-                logger.info("Saved context to cache")
-        except Exception as e:
-            logger.warning(f"Failed to save context cache: {e}")
-        
-        return context
-
-class ChatBot:
-    def __init__(self, openai_api_key: Optional[str] = None, json_file: str = "categorized_rsos2"):
-        """Initialize the ChatBot with OpenAI API key and JSON data file."""
+class HybridRsoBot:
+    def __init__(self, 
+                 pinecone_api_key: Optional[str] = None,
+                 pinecone_index_name: Optional[str] = None,
+                 openai_api_key: Optional[str] = None):
+        """Initialize the Hybrid RSO bot with cached models"""
         try:
             # Load environment variables
             script_dir = Path(__file__).parent.absolute()
             env_path = script_dir.parent / '.env'
             load_dotenv(dotenv_path=env_path)
             
-            # Set up OpenAI client
-            self.api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
-            if not self.api_key:
+            # Set up API keys
+            self.pinecone_api_key = pinecone_api_key or os.getenv('PINECONE_API_KEY')
+            self.openai_api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
+            self.pinecone_index_name = pinecone_index_name or os.getenv('PINECONE_INDEX_NAME', 'rso-chatbot')
+
+            if not self.pinecone_api_key:
+                raise ValueError("Pinecone API key not found")
+            if not self.openai_api_key:
                 raise ValueError("OpenAI API key not found")
+
+            # Initialize Pinecone
+            self.pc = pinecone.Pinecone(api_key=self.pinecone_api_key)
+            self.index = self.pc.Index(self.pinecone_index_name)
             
-            self.client = OpenAI(api_key=self.api_key)
-            self.tokenizer = tiktoken.encoding_for_model("gpt-4")
+            # Get cached models
+            self.model_cache = ModelCache()
             
-            # Initialize context manager
-            self.context_manager = ContextManager(json_file)
-            self._initialize_system_prompt()
+            # Initialize OpenAI client
+            self.client = OpenAI(api_key=self.openai_api_key)
             
-            logger.info("ChatBot initialization complete!")
+            logger.info("HybridRsoBot initialization complete!")
             
         except Exception as e:
             logger.error(f"Initialization error: {str(e)}", exc_info=True)
             raise
 
-    def _initialize_system_prompt(self) -> None:
-        """Initialize the system prompt with processed context."""
-        context = self.context_manager.get_processed_context()
-        self.system_prompt = f"""You are a helpful assistant that helps University of Chicago students find and learn about 
+    @lru_cache(maxsize=100)
+    def _get_embedding(self, text: str) -> List[float]:
+        """Cache embeddings for repeated queries"""
+        return self.model_cache.embed_model.encode(text).tolist()
+
+    async def get_relevant_contexts(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+        """Asynchronously get relevant RSO contexts"""
+        try:
+            logger.info(f"Searching for relevant RSOs with query: {query}")
+            query_embedding = await asyncio.to_thread(self._get_embedding, query)
+            
+            results = await asyncio.to_thread(
+                self.index.query,
+                vector=query_embedding,
+                top_k=top_k,
+                include_metadata=True
+            )
+            
+            logger.info(f"Found {len(results.matches)} matching RSOs")
+            return results.matches
+            
+        except Exception as e:
+            logger.error(f"Error in get_relevant_contexts: {str(e)}", exc_info=True)
+            return []
+
+    def format_rso_contexts(self, relevant_rsos: List[Dict[str, Any]]) -> str:
+        """Format RSO information efficiently"""
+        if not relevant_rsos:
+            return "No relevant RSOs found in the database."
+        
+        # Pre-allocate lists for better memory efficiency
+        contexts = []
+        for rso in relevant_rsos:
+            metadata = rso.metadata
+            rso_info = [f"Name: {metadata.get('name', 'N/A')}",
+                       f"Description: {metadata.get('description', 'N/A')}"]
+            
+            # Optional fields
+            if categories := metadata.get('categories'):
+                if isinstance(categories, list):
+                    rso_info.append(f"Categories: {', '.join(categories)}")
+            
+            if contact := metadata.get('contact_email'):
+                if contact.lower() not in ['none', 'n/a', '']:
+                    rso_info.append(f"Contact: {contact}")
+            
+            if website := metadata.get('full_url'):
+                if website.lower() not in ['none', 'n/a', '']:
+                    rso_info.append(f"Website: {website}")
+            
+            if social_media := metadata.get('social_media_links'):
+                if isinstance(social_media, list) and social_media:
+                    rso_info.append(f"Social Media: {', '.join(social_media)}")
+            
+            if additional_info := metadata.get('additional_info'):
+                if isinstance(additional_info, list) and additional_info:
+                    rso_info.append(f"Additional Info: {', '.join(additional_info)}")
+            
+            contexts.append("\n".join(rso_info))
+        
+        return "\n\n---\n\n".join(contexts)
+
+    def create_system_prompt(self, context: str) -> str:
+        """Create system prompt template"""
+        return f"""You are a helpful assistant that helps University of Chicago students find and learn about 
         Registered Student Organizations (RSOs). Use the provided information about RSOs to answer questions accurately. 
         If asked about RSOs that aren't in the provided data, let the student know you can only provide information 
         about RSOs in your database.
@@ -171,29 +159,37 @@ class ChatBot:
         3. Provide relevant details like contact information, meeting times, and websites when available
         4. If the student's interests match multiple categories, mention diverse options
 
-        Here's the RSO information you should use:
+        Here are the most relevant RSOs for this query:
         
         {context}"""
 
-    @lru_cache(maxsize=1000)
-    def _count_tokens(self, text: str) -> int:
-        """Count tokens in text with caching."""
-        return len(self.tokenizer.encode(text))
-
-    def generate_response(self, query: str) -> str:
-        """Generate a response to the user's query."""
+    async def generate_response(self, query: str) -> str:
+        """Generate response using async operations where possible"""
         try:
-            logger.info(f"Generating response for query: {query}")
+            logger.info(f"Processing query: {query}")
+            start_time = time.time()
             
-            response = self.client.chat.completions.create(
-                model="gpt-4-turbo-preview",
+            # Get relevant contexts using RAG
+            relevant_rsos = await self.get_relevant_contexts(query)
+            context = self.format_rso_contexts(relevant_rsos)
+            
+            # Create system prompt
+            system_prompt = self.create_system_prompt(context)
+            
+            # Generate response using ChatGPT
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
+                model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": query}
                 ],
                 temperature=0.7,
                 max_tokens=1000
             )
+            
+            total_time = time.time() - start_time
+            logger.info(f"Response generated in {total_time:.2f} seconds")
             
             return response.choices[0].message.content
             
@@ -201,23 +197,25 @@ class ChatBot:
             logger.error(f"Error generating response: {str(e)}", exc_info=True)
             return f"I apologize, but I encountered an error while processing your question: {str(e)}"
 
-# Global bot instance with lazy initialization
+# Global bot instance with thread-safe initialization
 _bot_instance = None
+_bot_lock = threading.Lock()
 
-def get_bot_instance() -> ChatBot:
-    """Get or create a singleton instance of ChatBot."""
+def get_bot_instance() -> HybridRsoBot:
+    """Thread-safe singleton instance of HybridRsoBot"""
     global _bot_instance
-    if _bot_instance is None:
-        try:
-            logger.info("Creating new ChatBot instance...")
-            _bot_instance = ChatBot()
-        except Exception as e:
-            logger.error(f"Error creating ChatBot instance: {str(e)}", exc_info=True)
-            raise
+    with _bot_lock:
+        if _bot_instance is None:
+            try:
+                logger.info("Creating new HybridRsoBot instance...")
+                _bot_instance = HybridRsoBot()
+            except Exception as e:
+                logger.error(f"Error creating HybridRsoBot instance: {str(e)}", exc_info=True)
+                raise
     return _bot_instance
 
-def main() -> None:
-    """Main function to handle command line queries."""
+async def main() -> None:
+    """Async main function to handle queries"""
     try:
         if len(sys.argv) < 2:
             print(json.dumps({"error": "No query provided"}))
@@ -227,7 +225,7 @@ def main() -> None:
         logger.info(f"Processing query: {query}")
         
         bot = get_bot_instance()
-        response = bot.generate_response(query)
+        response = await bot.generate_response(query)
         print(json.dumps({"response": response}))
         
     except Exception as e:
@@ -235,4 +233,4 @@ def main() -> None:
         print(json.dumps({"error": str(e)}))
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

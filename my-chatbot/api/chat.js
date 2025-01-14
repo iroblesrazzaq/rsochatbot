@@ -9,22 +9,8 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Reduced timeout since we've optimized the Python script
-const TIMEOUT = 30000; // 30 seconds timeout
-
-// Cache for script path verification
-let scriptPathVerified = false;
-
-const verifyScriptPath = async (scriptPath) => {
-    if (scriptPathVerified) return;
-    
-    try {
-        await import('fs').then(fs => fs.promises.access(scriptPath));
-        scriptPathVerified = true;
-    } catch (error) {
-        throw new Error('Python script not found at ' + scriptPath);
-    }
-};
+// Increased timeout for initial model loading
+const TIMEOUT = 60000; // 60 seconds timeout
 
 const chatHandler = async (req) => {
     console.log('\n========== CHAT REQUEST STARTED ==========');
@@ -36,7 +22,6 @@ const chatHandler = async (req) => {
         }
 
         const scriptPath = path.join(__dirname, '..', 'scripts', 'openai_bot.py');
-        await verifyScriptPath(scriptPath);
         
         const options = {
             mode: 'json',
@@ -46,7 +31,8 @@ const chatHandler = async (req) => {
             args: [req.message],
             env: {
                 ...process.env,
-                PYTHONUNBUFFERED: '1'
+                PYTHONUNBUFFERED: '1',
+                TOKENIZERS_PARALLELISM: 'false'
             }
         };
 
@@ -55,11 +41,17 @@ const chatHandler = async (req) => {
                 reject(new Error(`Request timed out after ${TIMEOUT/1000} seconds`));
             }, TIMEOUT);
 
-            let outputBuffer = [];
             const pyshell = new PythonShell(path.basename(scriptPath), options);
+            let outputBuffer = [];
 
             pyshell.on('message', (message) => outputBuffer.push(message));
-            pyshell.on('stderr', (stderr) => console.error('Python stderr:', stderr));
+            
+            pyshell.on('stderr', (stderr) => {
+                // Only log non-progress bar output
+                if (!stderr.includes('Batches:') && !stderr.includes('it/s]')) {
+                    console.error('Python stderr:', stderr);
+                }
+            });
 
             pyshell.end((err, code, signal) => {
                 clearTimeout(timeoutId);
