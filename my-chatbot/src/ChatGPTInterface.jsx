@@ -76,6 +76,26 @@ const ChatInterface = () => {
     discoverBackendPort();
   }, [discoveryAttempts]);
 
+    // Initialize with a welcome chat
+    useEffect(() => {
+        // Only create initial chat if no chats exist
+        if (chats.length === 0) {
+            const initialMsg =     `
+            Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!
+            `;
+            const initialChat = {
+                id: Date.now(),
+                title: "Welcome Chat",
+                messages: [{
+                    role: 'assistant',
+                    content: initialMsg
+                }]
+            };
+            setChats([initialChat]);
+            setCurrentChat(initialChat);
+        }
+    }, []); // Empty dependency array means this runs once on mount
+
   const createChat = () => {
     const newChat = {
       id: Date.now(),
