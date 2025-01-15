@@ -77,35 +77,93 @@ const ChatInterface = () => {
   }, [discoveryAttempts]);
 
     // Initialize with a welcome chat
-    useEffect(() => {
-        // Only create initial chat if no chats exist
-        if (chats.length === 0) {
-            const initialMsg =     `
-            Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!
-            `;
-            const initialChat = {
-                id: Date.now(),
-                title: "Welcome Chat",
-                messages: [{
-                    role: 'assistant',
-                    content: initialMsg
-                }]
-            };
-            setChats([initialChat]);
-            setCurrentChat(initialChat);
-        }
-    }, []); // Empty dependency array means this runs once on mount
+    // Replace your current initial chat useEffect with this one
+useEffect(() => {
+    const initializeFirstChat = async () => {
+        // Only proceed if we have no chats AND have a backend connection
+        if (chats.length === 0 && backendUrl) {
+            try {
+                const initialChatId = Date.now();
+                setIsLoading(true);
 
-  const createChat = () => {
-    const newChat = {
-      id: Date.now(),
-      title: `Chat ${chats.length + 1}`,
-      messages: []
+                // First create the chat with welcome message so users see something immediately
+                const initialChat = {
+                    id: initialChatId,
+                    title: "Welcome Chat",
+                    messages: [{
+                        role: 'assistant',
+                        content: `Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!`
+                    }]
+                };
+                setChats([initialChat]);
+                setCurrentChat(initialChat);
+
+                // Then initialize the bot in the background
+                await axios.post(`${backendUrl}/api/chat/init`, 
+                    { chatId: initialChatId.toString() },
+                    { withCredentials: true }
+                );
+                
+                console.log('Initial chat bot initialized successfully');
+                
+            } catch (error) {
+                console.error('Error initializing first chat:', error);
+                // Add error message to chat instead of separate error state
+                const errorChat = {
+                    id: Date.now(),
+                    title: "Welcome Chat",
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: `Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!`
+                        },
+                        {
+                            role: 'system',
+                            content: 'Error initializing chat. Some features may be unavailable.',
+                            isError: true
+                        }
+                    ]
+                };
+                setChats([errorChat]);
+                setCurrentChat(errorChat);
+            } finally {
+                setIsLoading(false);
+            }
+        }
     };
-    setChats(prevChats => [...prevChats, newChat]);
-    setCurrentChat(newChat);
-    console.log('Created new chat:', newChat);
-  };
+
+    initializeFirstChat();
+}, [backendUrl, chats.length]); // Add both dependencies
+
+    const createChat = async () => {
+        try {
+          const newChatId = Date.now();
+          setIsLoading(true);  // Show loading state while initializing
+      
+          // Initialize bot for the new chat
+          await axios.post(`${backendUrl}/api/chat/init`, 
+            { chatId: newChatId.toString() },
+            { withCredentials: true }
+          );
+      
+          const newChat = {
+            id: newChatId,
+            title: `Chat ${chats.length + 1}`,
+            messages: []
+          };
+      
+          setChats(prevChats => [...prevChats, newChat]);
+          setCurrentChat(newChat);
+          console.log('Created new chat:', newChat);
+          
+        } catch (error) {
+          console.error('Error creating chat:', error);
+          // Show error message to user
+          setError('Failed to create new chat. Please try again.');
+        } finally {
+          setIsLoading(false);
+        }
+      };
 
   const deleteChat = (chatId) => {
     setChats(prevChats => prevChats.filter(chat => chat.id !== chatId));

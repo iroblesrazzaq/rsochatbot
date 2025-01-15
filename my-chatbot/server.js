@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import net from 'net';
 import chatHandler from './api/chat.js';
+import chatProcessManager from './chatProcessManager.js';  // Make sure this import is present
 
 dotenv.config();
 
@@ -102,7 +103,30 @@ app.get('/api/port', (req, res) => {
   });
 });
 
-
+app.post('/api/chat/init', async (req, res) => {
+    const requestId = Math.random().toString(36).substring(7);
+    console.log(`\n=== Chat Initialization Request ${requestId} ===`);
+    
+    try {
+      if (!req.body.chatId) {
+        throw new Error('Chat ID is required');
+      }
+  
+      // Initialize the chat process
+      await chatProcessManager.initializeChatProcess(req.body.chatId);
+      
+      console.log(`Chat ${req.body.chatId} initialized successfully`);
+      res.json({ status: 'success', message: 'Chat initialized successfully' });
+      
+    } catch (error) {
+      console.error(`Error initializing chat ${req.body.chatId}:`, error);
+      res.status(500).json({
+        error: error.message,
+        type: error.name,
+        requestId: requestId
+      });
+    }
+  });
 
 // Enhanced chat endpoint with timeout
 app.post('/api/chat', async (req, res) => {
