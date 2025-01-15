@@ -33,3 +33,4 @@ login.json
 repomix*
 token.pickle
 package-lock.json
+*.pyc
