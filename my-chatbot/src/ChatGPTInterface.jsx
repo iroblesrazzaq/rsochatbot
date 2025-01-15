@@ -231,10 +231,10 @@ const ChatInterface = () => {
       )}
 
       {/* Sidebar */}
-      <div className="w-64 bg-white p-4 border-r">
+      <div className="w-64 bg-maroon p-4 border-r">
         <button
           onClick={createChat}
-          className="w-full bg-blue-500 text-white p-2 rounded mb-4 hover:bg-blue-600"
+          className="w-full bg-white text-black p-2 rounded mb-4 hover:bg-blue-600"
         >
           New Chat
         </button>
@@ -242,10 +242,10 @@ const ChatInterface = () => {
           {chats.map(chat => (
             <div
               key={chat.id}
-              className="flex justify-between items-center p-2 hover:bg-gray-100 rounded cursor-pointer"
+              className="flex justify-between bg-maroon-dark items-center rounded p-2 border-2 border-transparent cursor-pointer hover:border-white"
               onClick={() => setCurrentChat(chat)}
             >
-              <span className={`text-black ${currentChat?.id === chat.id ? 'font-bold' : ''}`}>
+              <span className={`text-white ${currentChat?.id === chat.id ? 'font-bold' : ''}`}>
                 {chat.title}
               </span>
               <button
@@ -307,7 +307,7 @@ const ChatInterface = () => {
                 <button
                   type="submit"
                   disabled={isLoading || !backendUrl || !currentChat}
-                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-blue-300"
+                  className="bg-maroon text-white px-4 py-2 rounded hover:bg-maroon-dark disabled:bg-maroon-light"
                 >
                   {isLoading ? 'Sending...' : 'Send'}
                 </button>
