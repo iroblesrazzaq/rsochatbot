@@ -76,6 +76,26 @@ const ChatInterface = () => {
     discoverBackendPort();
   }, [discoveryAttempts]);
 
+    // Initialize with a welcome chat
+    useEffect(() => {
+        // Only create initial chat if no chats exist
+        if (chats.length === 0) {
+            const initialMsg =     `
+            Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!
+            `;
+            const initialChat = {
+                id: Date.now(),
+                title: "Welcome Chat",
+                messages: [{
+                    role: 'assistant',
+                    content: initialMsg
+                }]
+            };
+            setChats([initialChat]);
+            setCurrentChat(initialChat);
+        }
+    }, []); // Empty dependency array means this runs once on mount
+
   const createChat = () => {
     const newChat = {
       id: Date.now(),
@@ -211,10 +231,10 @@ const ChatInterface = () => {
       )}
 
       {/* Sidebar */}
-      <div className="w-64 bg-white p-4 border-r">
+      <div className="w-64 bg-maroon p-4 border-r">
         <button
           onClick={createChat}
-          className="w-full bg-blue-500 text-white p-2 rounded mb-4 hover:bg-blue-600"
+          className="w-full bg-white text-maroon-dark p-2 rounded mb-4 border-2 border-transparent font-normal hover:border-maroon hover:font-bold"
         >
           New Chat
         </button>
@@ -222,10 +242,10 @@ const ChatInterface = () => {
           {chats.map(chat => (
             <div
               key={chat.id}
-              className="flex justify-between items-center p-2 hover:bg-gray-100 rounded cursor-pointer"
+              className="flex justify-between bg-maroon-dark items-center rounded p-2 border-2 border-transparent cursor-pointer hover:border-white"
               onClick={() => setCurrentChat(chat)}
             >
-              <span className={`text-black ${currentChat?.id === chat.id ? 'font-bold' : ''}`}>
+              <span className={`text-white ${currentChat?.id === chat.id ? 'font-bold' : ''}`}>
                 {chat.title}
               </span>
               <button
@@ -256,7 +276,7 @@ const ChatInterface = () => {
                   <div
                     className={`inline-block p-2 rounded-lg max-w-[70%] ${
                       msg.role === 'user'
-                        ? 'bg-blue-500 text-white'
+                        ? 'bg-maroon text-white'
                         : msg.isError
                         ? 'bg-red-100 text-red-600'
                         : 'bg-gray-200 text-black'
@@ -287,7 +307,7 @@ const ChatInterface = () => {
                 <button
                   type="submit"
                   disabled={isLoading || !backendUrl || !currentChat}
-                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-blue-300"
+                  className="bg-maroon text-white px-4 py-2 rounded font-normal hover:font-bold disabled:bg-maroon-light"
                 >
                   {isLoading ? 'Sending...' : 'Send'}
                 </button>
