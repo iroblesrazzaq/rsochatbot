@@ -23,3 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+
+context.txt
+repopack-output*
+categorized_rsos2.json
+credentials.json
+login.json
+repomix*
+token.pickle
