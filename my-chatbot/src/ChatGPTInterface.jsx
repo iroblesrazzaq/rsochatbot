@@ -276,7 +276,7 @@ const ChatInterface = () => {
                   <div
                     className={`inline-block p-2 rounded-lg max-w-[70%] ${
                       msg.role === 'user'
-                        ? 'bg-blue-500 text-white'
+                        ? 'bg-maroon text-white'
                         : msg.isError
                         ? 'bg-red-100 text-red-600'
                         : 'bg-gray-200 text-black'
