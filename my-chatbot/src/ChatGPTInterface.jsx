@@ -118,19 +118,11 @@ const ChatInterface = () => {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     
-    console.log('Send attempt:', {
-      hasMessage: Boolean(message.trim()),
-      hasCurrentChat: Boolean(currentChat),
-      hasBackendUrl: Boolean(backendUrl),
-      message,
-      currentChatId: currentChat?.id
-    });
-
     if (!message.trim() || !currentChat || !backendUrl) {
       console.log('Send conditions not met');
       return;
     }
-
+  
     const updatedChat = {
       ...currentChat,
       messages: [...currentChat.messages, { role: 'user', content: message }]
@@ -144,14 +136,14 @@ const ChatInterface = () => {
     const userMessage = message;
     setMessage('');
     setIsLoading(true);
-
+  
     try {
       console.log('Sending message to:', `${backendUrl}/api/chat`);
       
       const response = await axios.post(`${backendUrl}/api/chat`, 
         {
           message: userMessage,
-          chatId: currentChat.id
+          chatId: currentChat.id.toString() // Add this line to include the chat ID
         }, 
         {
           headers: {
@@ -160,9 +152,9 @@ const ChatInterface = () => {
           withCredentials: true
         }
       );
-
+  
       console.log('Received response:', response.data);
-
+  
       if (response.data && response.data.response) {
         const updatedChatWithResponse = {
           ...updatedChat,

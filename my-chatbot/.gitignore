@@ -32,3 +32,4 @@ credentials.json
 login.json
 repomix*
 token.pickle
+package-lock.json

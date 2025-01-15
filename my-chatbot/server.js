@@ -102,51 +102,38 @@ app.get('/api/port', (req, res) => {
   });
 });
 
+
+
 // Enhanced chat endpoint with timeout
 app.post('/api/chat', async (req, res) => {
-  const requestId = Math.random().toString(36).substring(7);
-  console.log(`\n=== Chat Request ${requestId} ===`);
-  console.log('Time:', new Date().toISOString());
-  console.log('Body:', req.body);
-
-  const TIMEOUT = 30000; // 30 second timeout
-
-  try {
-    if (!req.body.message) {
-      throw new Error('Message is required');
+    const requestId = Math.random().toString(36).substring(7);
+    console.log(`\n=== Chat Request ${requestId} ===`);
+    
+    try {
+      if (!req.body.message) {
+        throw new Error('Message is required');
+      }
+      if (!req.body.chatId) {
+        throw new Error('Chat ID is required');
+      }
+  
+      const result = await chatHandler({
+        message: req.body.message,
+        chatId: req.body.chatId
+      });
+  
+      console.log(`Chat Request ${requestId} completed successfully`);
+      res.json(result);
+  
+    } catch (error) {
+      console.error(`Error in chat request ${requestId}:`, error);
+      res.status(500).json({
+        error: error.message,
+        type: error.name,
+        requestId: requestId
+      });
     }
-
-    // Create a timeout promise
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Request timeout after 30 seconds')), TIMEOUT);
-    });
-
-    // Race between the chat handler and the timeout
-    const result = await Promise.race([
-      chatHandler(req.body),
-      timeoutPromise
-    ]);
-
-    console.log(`Chat Request ${requestId} completed successfully`);
-    console.log('Response:', result);
-    res.json(result);
-
-  } catch (error) {
-    console.error(`Error in chat request ${requestId}:`, error);
-    const errorResponse = {
-      error: error.message,
-      type: error.name,
-      requestId: requestId
-    };
-
-    // Add stack trace in development
-    if (process.env.NODE_ENV === 'development') {
-      errorResponse.stack = error.stack;
-    }
-
-    res.status(500).json(errorResponse);
-  }
-});
+  });
 
 // Add a health check endpoint
 app.get('/api/health', (req, res) => {
