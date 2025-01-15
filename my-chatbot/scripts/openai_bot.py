@@ -55,7 +55,7 @@ class HybridRsoBot:
         try:
             # Load environment variables
             script_dir = Path(__file__).parent.absolute()
-            env_path = script_dir.parent / '.env'
+            env_path = script_dir.parent.parent / '.env'
             load_dotenv(dotenv_path=env_path)
             
             # Set up API keys
@@ -148,19 +148,14 @@ class HybridRsoBot:
 
     def create_system_prompt(self, context: str) -> str:
         """Create system prompt template"""
-        return f"""You are a helpful assistant that helps University of Chicago students find and learn about 
+        return f"""
+        INSTRUCTION:
+        You are a helpful assistant that helps University of Chicago students find and learn about 
         Registered Student Organizations (RSOs). Use the provided information about RSOs to answer questions accurately. 
         If asked about RSOs that aren't in the provided data, let the student know you can only provide information 
         about RSOs in your database.
 
-        When recommending RSOs:
-        1. Consider any specific interests or preferences mentioned in the query
-        2. Group recommendations by category when appropriate
-        3. Provide relevant details like contact information, meeting times, and websites when available
-        4. If the student's interests match multiple categories, mention diverse options
-
-        Here are the most relevant RSOs for this query:
-        
+        DOCUMENTS:
         {context}"""
 
     async def generate_response(self, query: str) -> str:
@@ -182,10 +177,10 @@ class HybridRsoBot:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": query}
+                    {"role": "user", "content": f"QUESTION: {query}"}
                 ],
                 temperature=0.7,
-                max_tokens=1000
+                max_tokens=5000
             )
             
             total_time = time.time() - start_time

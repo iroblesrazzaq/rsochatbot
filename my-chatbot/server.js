@@ -173,6 +173,11 @@ const startServer = async () => {
   try {
     const port = await findAvailablePort(preferredPort);
     app.set('port', port);
+
+    console.log('\n=== Starting Bot Initialization ===');
+    chatHandler({ message: "init" })  // Non-blocking initialization
+      .then(() => console.log('Bot initialization complete!'))
+      .catch(err => console.error('Bot initialization error:', err));
     
     const server = app.listen(port, () => {
       console.log('\n=== Server Started ===');
