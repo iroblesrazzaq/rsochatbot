@@ -234,7 +234,7 @@ const ChatInterface = () => {
       <div className="w-64 bg-maroon p-4 border-r">
         <button
           onClick={createChat}
-          className="w-full bg-white text-black p-2 rounded mb-4 hover:bg-blue-600"
+          className="w-full bg-white text-maroon-dark p-2 rounded mb-4 border-2 border-transparent font-normal hover:border-maroon hover:font-bold"
         >
           New Chat
         </button>
@@ -307,7 +307,7 @@ const ChatInterface = () => {
                 <button
                   type="submit"
                   disabled={isLoading || !backendUrl || !currentChat}
-                  className="bg-maroon text-white px-4 py-2 rounded hover:bg-maroon-dark disabled:bg-maroon-light"
+                  className="bg-maroon text-white px-4 py-2 rounded font-normal hover:font-bold disabled:bg-maroon-light"
                 >
                   {isLoading ? 'Sending...' : 'Send'}
                 </button>
