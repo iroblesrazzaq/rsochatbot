@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 class ChatProcessManager {
     constructor() {
         this.processes = new Map();
-        this.processTimeout = 30 * 60 * 1000; // 30 minutes
+        this.processTimeout = 10 * 60 * 1000; // 10 minutes
         this.maxProcesses = 10;
         this.startCleanupInterval();
     }
