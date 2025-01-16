@@ -2,13 +2,14 @@
 import sys
 import json
 import logging
+import asyncio
 from pathlib import Path
 import os
-import asyncio
 from typing import Optional
 from dotenv import load_dotenv
+from chat_manager import get_chat_manager
 
-# Set up logging
+# Configure logging with a detailed format for debugging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -18,9 +19,12 @@ logger = logging.getLogger(__name__)
 
 class PersistentBot:
     def __init__(self):
-        """Initialize the bot with all necessary components"""
+        """
+        Initialize the bot with necessary components and chat manager.
+        Sets up environment and establishes connections for long-running chat sessions.
+        """
         try:
-            # Load environment variables
+            # Load environment variables from the correct path
             script_dir = Path(__file__).parent.absolute()
             env_path = script_dir.parent / '.env'
             load_dotenv(dotenv_path=env_path)
@@ -28,12 +32,15 @@ class PersistentBot:
             # Get chat ID from environment
             self.chat_id = os.getenv('CHAT_ID')
             if not self.chat_id:
-                raise ValueError("Chat ID not provided")
+                raise ValueError("Chat ID not provided in environment variables")
 
-            logger.info(f"Initializing bot for chat {self.chat_id}")
+            logger.info(f"Initializing persistent bot for chat {self.chat_id}")
             
-            # Initialize the actual bot (reuse your existing HybridRsoBot code)
-            self.bot = self.initialize_bot()
+            # Get the chat manager instance - this will initialize shared resources if needed
+            self.chat_manager = get_chat_manager()
+            
+            # Initialize the chat instance for this session
+            self.chat_manager.create_chat(self.chat_id)
             
             logger.info(f"Bot initialization complete for chat {self.chat_id}")
             
@@ -41,32 +48,51 @@ class PersistentBot:
             logger.error(f"Initialization error: {str(e)}", exc_info=True)
             raise
 
-    def initialize_bot(self):
-        """Initialize the actual bot implementation"""
-        # Import here to avoid circular imports
-        from openai_bot import HybridRsoBot
-        return HybridRsoBot()
-
     async def process_message(self, message: str) -> str:
-        """Process a single message using the bot"""
+        """
+        Process a single message using the chat manager.
+        
+        Args:
+            message: The input message to process
+            
+        Returns:
+            The generated response string
+        """
         try:
-            response = await self.bot.generate_response(message)
+            # Process the message using the chat manager
+            response = await self.chat_manager.process_message(self.chat_id, message)
             return response
+            
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}", exc_info=True)
-            raise
+            return f"Error processing message: {str(e)}"
+
+    def cleanup(self):
+        """
+        Clean up resources for this chat session.
+        Called when the bot is being shut down.
+        """
+        try:
+            logger.info(f"Cleaning up resources for chat {self.chat_id}")
+            self.chat_manager.cleanup_chat(self.chat_id)
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}", exc_info=True)
 
 async def main():
-    """Main loop to handle incoming messages"""
+    """
+    Main function to handle the persistent bot lifecycle.
+    Manages initialization, message processing loop, and cleanup.
+    """
     try:
         # Initialize the bot
         bot = PersistentBot()
         logger.info("Bot ready to process messages")
         
+        # Signal ready state to the parent process
         print(json.dumps({"status": "ready"}))
         sys.stdout.flush()
 
-        # Process incoming messages
+        # Process incoming messages in a loop
         for line in sys.stdin:
             try:
                 # Parse the incoming message
@@ -90,6 +116,10 @@ async def main():
         logger.error(f"Fatal error in main loop: {str(e)}", exc_info=True)
         print(json.dumps({"error": str(e)}))
         sys.stdout.flush()
+    finally:
+        # Ensure cleanup happens even if there's an error
+        if 'bot' in locals():
+            bot.cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main())

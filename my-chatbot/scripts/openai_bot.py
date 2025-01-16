@@ -15,6 +15,8 @@ import time
 import asyncio
 from functools import lru_cache
 import threading
+from chat_manager import get_chat_manager
+from shared_resources import SharedResources
 
 # Set environment variable to handle tokenizer warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -196,18 +198,17 @@ class HybridRsoBot:
 _bot_instance = None
 _bot_lock = threading.Lock()
 
-def get_bot_instance() -> HybridRsoBot:
-    """Thread-safe singleton instance of HybridRsoBot"""
-    global _bot_instance
-    with _bot_lock:
-        if _bot_instance is None:
-            try:
-                logger.info("Creating new HybridRsoBot instance...")
-                _bot_instance = HybridRsoBot()
-            except Exception as e:
-                logger.error(f"Error creating HybridRsoBot instance: {str(e)}", exc_info=True)
-                raise
-    return _bot_instance
+
+def initialize_bot(chat_id):
+    """Initialize a new chat instance"""
+    chat_manager = get_chat_manager()
+    return chat_manager.create_chat(chat_id)
+
+def process_message(chat_id, message):
+    """Process a message using our new architecture"""
+    chat_manager = get_chat_manager()
+    return chat_manager.process_message(chat_id, message)
+
 
 async def main() -> None:
     """Async main function to handle queries"""
@@ -219,7 +220,7 @@ async def main() -> None:
         query = sys.argv[1]
         logger.info(f"Processing query: {query}")
         
-        bot = get_bot_instance()
+
         response = await bot.generate_response(query)
         print(json.dumps({"response": response}))
         
