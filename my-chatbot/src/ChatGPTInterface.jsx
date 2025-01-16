@@ -1,5 +1,89 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { tomorrow } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+const LoadingSpinner = () => {
+  return (
+    <div className="flex items-center justify-center p-4">
+      <div className="relative w-8 h-8">
+        <div className="absolute border-4 border-gray-200 rounded-full w-full h-full"></div>
+        <div 
+          className="absolute border-4 border-maroon rounded-full w-full h-full animate-spin" 
+          style={{ borderTopColor: 'transparent' }}
+        ></div>
+      </div>
+    </div>
+  );
+};
+
+// Message content component for handling markdown and formatting
+const MessageContent = ({ content, role }) => {
+  if (role === 'user') {
+    return <div className="whitespace-pre-wrap">{content}</div>;
+  }
+
+  // Try to parse JSON content if it's a string
+  let messageContent = content;
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.data && parsed.data.content) {
+      messageContent = parsed.data.content;
+    } else if (parsed.response) {
+      try {
+        const nestedResponse = JSON.parse(parsed.response);
+        if (nestedResponse.data && nestedResponse.data.content) {
+          messageContent = nestedResponse.data.content;
+        } else {
+          messageContent = parsed.response;
+        }
+      } catch {
+        messageContent = parsed.response;
+      }
+    }
+  } catch {
+    // If parsing fails, use the original content
+    messageContent = content;
+  }
+
+  return (
+    <ReactMarkdown
+      className="text-left break-words"
+      components={{
+        p: ({ children }) => <p className="mb-2">{children}</p>,
+        h1: ({ children }) => <h1 className="text-xl font-bold mb-2 mt-3">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-lg font-bold mb-2 mt-3">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-md font-bold mb-2 mt-3">{children}</h3>,
+        ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
+        li: ({ children }) => <li className="mb-1">{children}</li>,
+        code({ node, inline, className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          return !inline && match ? (
+            <div className="my-2">
+              <SyntaxHighlighter
+                style={tomorrow}
+                language={match[1]}
+                PreTag="div"
+                className="rounded"
+                {...props}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            </div>
+          ) : (
+            <code className="bg-gray-100 px-1 rounded" {...props}>
+              {children}
+            </code>
+          );
+        },
+      }}
+    >
+      {messageContent}
+    </ReactMarkdown>
+  );
+};
 
 const ChatInterface = () => {
   const [chats, setChats] = useState([]);
@@ -30,14 +114,13 @@ const ChatInterface = () => {
 
         for (let port = startPort; port <= maxPort; port++) {
           try {
-            console.log(`Trying port ${port}...`);
             const response = await axios.get(`http://localhost:${port}/api/port`, {
               headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
               },
               withCredentials: true,
-              timeout: 1000 // 1 second timeout for each attempt
+              timeout: 1000
             });
 
             if (response.data && response.data.port) {
@@ -76,35 +159,84 @@ const ChatInterface = () => {
     discoverBackendPort();
   }, [discoveryAttempts]);
 
-    // Initialize with a welcome chat
-    useEffect(() => {
-        // Only create initial chat if no chats exist
-        if (chats.length === 0) {
-            const initialMsg =     `
-            Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!
-            `;
-            const initialChat = {
-                id: Date.now(),
-                title: "Welcome Chat",
-                messages: [{
-                    role: 'assistant',
-                    content: initialMsg
-                }]
-            };
-            setChats([initialChat]);
-            setCurrentChat(initialChat);
-        }
-    }, []); // Empty dependency array means this runs once on mount
+  useEffect(() => {
+    const initializeFirstChat = async () => {
+      if (chats.length === 0 && backendUrl) {
+        try {
+          const initialChatId = Date.now();
+          setIsLoading(true);
 
-  const createChat = () => {
-    const newChat = {
-      id: Date.now(),
-      title: `Chat ${chats.length + 1}`,
-      messages: []
+          const initialChat = {
+            id: initialChatId,
+            title: "Welcome Chat",
+            messages: [{
+              role: 'assistant',
+              content: `Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!`
+            }]
+          };
+          setChats([initialChat]);
+          setCurrentChat(initialChat);
+
+          await axios.post(`${backendUrl}/api/chat/init`, 
+            { chatId: initialChatId.toString() },
+            { withCredentials: true }
+          );
+          
+          console.log('Initial chat bot initialized successfully');
+          
+        } catch (error) {
+          console.error('Error initializing first chat:', error);
+          const errorChat = {
+            id: Date.now(),
+            title: "Welcome Chat",
+            messages: [
+              {
+                role: 'assistant',
+                content: `Hi! I'm your UChicago RSO assistant. Ask me about anything related to UChicago RSOs!`
+              },
+              {
+                role: 'system',
+                content: 'Error initializing chat. Some features may be unavailable.',
+                isError: true
+              }
+            ]
+          };
+          setChats([errorChat]);
+          setCurrentChat(errorChat);
+        } finally {
+          setIsLoading(false);
+        }
+      }
     };
-    setChats(prevChats => [...prevChats, newChat]);
-    setCurrentChat(newChat);
-    console.log('Created new chat:', newChat);
+
+    initializeFirstChat();
+  }, [backendUrl, chats.length]);
+
+  const createChat = async () => {
+    try {
+      const newChatId = Date.now();
+      setIsLoading(true);
+
+      await axios.post(`${backendUrl}/api/chat/init`, 
+        { chatId: newChatId.toString() },
+        { withCredentials: true }
+      );
+
+      const newChat = {
+        id: newChatId,
+        title: `Chat ${chats.length + 1}`,
+        messages: []
+      };
+
+      setChats(prevChats => [...prevChats, newChat]);
+      setCurrentChat(newChat);
+      console.log('Created new chat:', newChat);
+      
+    } catch (error) {
+      console.error('Error creating chat:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const deleteChat = (chatId) => {
@@ -118,19 +250,10 @@ const ChatInterface = () => {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     
-    console.log('Send attempt:', {
-      hasMessage: Boolean(message.trim()),
-      hasCurrentChat: Boolean(currentChat),
-      hasBackendUrl: Boolean(backendUrl),
-      message,
-      currentChatId: currentChat?.id
-    });
-
     if (!message.trim() || !currentChat || !backendUrl) {
-      console.log('Send conditions not met');
       return;
     }
-
+  
     const updatedChat = {
       ...currentChat,
       messages: [...currentChat.messages, { role: 'user', content: message }]
@@ -144,14 +267,12 @@ const ChatInterface = () => {
     const userMessage = message;
     setMessage('');
     setIsLoading(true);
-
+  
     try {
-      console.log('Sending message to:', `${backendUrl}/api/chat`);
-      
       const response = await axios.post(`${backendUrl}/api/chat`, 
         {
           message: userMessage,
-          chatId: currentChat.id
+          chatId: currentChat.id.toString()
         }, 
         {
           headers: {
@@ -160,9 +281,7 @@ const ChatInterface = () => {
           withCredentials: true
         }
       );
-
-      console.log('Received response:', response.data);
-
+  
       if (response.data && response.data.response) {
         const updatedChatWithResponse = {
           ...updatedChat,
@@ -175,16 +294,9 @@ const ChatInterface = () => {
           prevChats.map(chat => chat.id === currentChat.id ? updatedChatWithResponse : chat)
         );
         setCurrentChat(updatedChatWithResponse);
-      } else {
-        throw new Error('Invalid response format from server');
       }
     } catch (error) {
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
-
+      console.error('Error details:', error);
       const errorMessage = error.response?.data?.error || error.message || 'Failed to send message';
       const updatedChatWithError = {
         ...updatedChat,
@@ -223,7 +335,6 @@ const ChatInterface = () => {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Debug info */}
       {process.env.NODE_ENV === 'development' && (
         <div className="fixed top-0 right-0 bg-black text-white p-2 text-xs">
           Backend: {backendUrl || 'Not connected'}
@@ -274,7 +385,9 @@ const ChatInterface = () => {
                   className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}
                 >
                   <div
-                    className={`inline-block p-2 rounded-lg max-w-[70%] ${
+                    className={`inline-block p-3 rounded-lg ${
+                      msg.role === 'user' ? 'max-w-[70%]' : 'max-w-[85%]'
+                    } ${
                       msg.role === 'user'
                         ? 'bg-maroon text-white'
                         : msg.isError
@@ -282,15 +395,14 @@ const ChatInterface = () => {
                         : 'bg-gray-200 text-black'
                     }`}
                   >
-                    {msg.content}
+                    <MessageContent 
+                      content={msg.content} 
+                      role={msg.role}
+                    />
                   </div>
                 </div>
               ))}
-              {isLoading && (
-                <div className="text-center text-gray-500">
-                  AI is thinking...
-                </div>
-              )}
+              {isLoading && <LoadingSpinner />}
               <div ref={messagesEndRef} />
             </div>
 
@@ -307,7 +419,7 @@ const ChatInterface = () => {
                 <button
                   type="submit"
                   disabled={isLoading || !backendUrl || !currentChat}
-                  className="bg-maroon text-white px-4 py-2 rounded font-normal hover:font-bold disabled:bg-maroon-light"
+                  className="bg-maroon text-white px-4 py-2 rounded font-normal hover:font-bold disabled:opacity-50"
                 >
                   {isLoading ? 'Sending...' : 'Send'}
                 </button>

@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import net from 'net';
 import chatHandler from './api/chat.js';
+import chatProcessManager from './chatProcessManager.js';  // Make sure this import is present
 
 dotenv.config();
 
@@ -102,51 +103,61 @@ app.get('/api/port', (req, res) => {
   });
 });
 
+app.post('/api/chat/init', async (req, res) => {
+    const requestId = Math.random().toString(36).substring(7);
+    console.log(`\n=== Chat Initialization Request ${requestId} ===`);
+    
+    try {
+      if (!req.body.chatId) {
+        throw new Error('Chat ID is required');
+      }
+  
+      // Initialize the chat process
+      await chatProcessManager.initializeChatProcess(req.body.chatId);
+      
+      console.log(`Chat ${req.body.chatId} initialized successfully`);
+      res.json({ status: 'success', message: 'Chat initialized successfully' });
+      
+    } catch (error) {
+      console.error(`Error initializing chat ${req.body.chatId}:`, error);
+      res.status(500).json({
+        error: error.message,
+        type: error.name,
+        requestId: requestId
+      });
+    }
+  });
+
 // Enhanced chat endpoint with timeout
 app.post('/api/chat', async (req, res) => {
-  const requestId = Math.random().toString(36).substring(7);
-  console.log(`\n=== Chat Request ${requestId} ===`);
-  console.log('Time:', new Date().toISOString());
-  console.log('Body:', req.body);
-
-  const TIMEOUT = 30000; // 30 second timeout
-
-  try {
-    if (!req.body.message) {
-      throw new Error('Message is required');
+    const requestId = Math.random().toString(36).substring(7);
+    console.log(`\n=== Chat Request ${requestId} ===`);
+    
+    try {
+      if (!req.body.message) {
+        throw new Error('Message is required');
+      }
+      if (!req.body.chatId) {
+        throw new Error('Chat ID is required');
+      }
+  
+      const result = await chatHandler({
+        message: req.body.message,
+        chatId: req.body.chatId
+      });
+  
+      console.log(`Chat Request ${requestId} completed successfully`);
+      res.json(result);
+  
+    } catch (error) {
+      console.error(`Error in chat request ${requestId}:`, error);
+      res.status(500).json({
+        error: error.message,
+        type: error.name,
+        requestId: requestId
+      });
     }
-
-    // Create a timeout promise
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Request timeout after 30 seconds')), TIMEOUT);
-    });
-
-    // Race between the chat handler and the timeout
-    const result = await Promise.race([
-      chatHandler(req.body),
-      timeoutPromise
-    ]);
-
-    console.log(`Chat Request ${requestId} completed successfully`);
-    console.log('Response:', result);
-    res.json(result);
-
-  } catch (error) {
-    console.error(`Error in chat request ${requestId}:`, error);
-    const errorResponse = {
-      error: error.message,
-      type: error.name,
-      requestId: requestId
-    };
-
-    // Add stack trace in development
-    if (process.env.NODE_ENV === 'development') {
-      errorResponse.stack = error.stack;
-    }
-
-    res.status(500).json(errorResponse);
-  }
-});
+  });
 
 // Add a health check endpoint
 app.get('/api/health', (req, res) => {
@@ -173,6 +184,11 @@ const startServer = async () => {
   try {
     const port = await findAvailablePort(preferredPort);
     app.set('port', port);
+
+    console.log('\n=== Starting Bot Initialization ===');
+    chatHandler({ message: "init" })  // Non-blocking initialization
+      .then(() => console.log('Bot initialization complete!'))
+      .catch(err => console.error('Bot initialization error:', err));
     
     const server = app.listen(port, () => {
       console.log('\n=== Server Started ===');
