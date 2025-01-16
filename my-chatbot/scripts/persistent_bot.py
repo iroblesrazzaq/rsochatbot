@@ -8,6 +8,8 @@ import os
 from typing import Optional
 from dotenv import load_dotenv
 from chat_manager import get_chat_manager
+from hybrid_rso_bot import get_bot
+
 
 # Configure logging with a detailed format for debugging
 logging.basicConfig(
@@ -19,31 +21,12 @@ logger = logging.getLogger(__name__)
 
 class PersistentBot:
     def __init__(self):
-        """
-        Initialize the bot with necessary components and chat manager.
-        Sets up environment and establishes connections for long-running chat sessions.
-        """
         try:
-            # Load environment variables from the correct path
-            script_dir = Path(__file__).parent.absolute()
-            env_path = script_dir.parent / '.env'
-            load_dotenv(dotenv_path=env_path)
-            
-            # Get chat ID from environment
             self.chat_id = os.getenv('CHAT_ID')
             if not self.chat_id:
-                raise ValueError("Chat ID not provided in environment variables")
-
-            logger.info(f"Initializing persistent bot for chat {self.chat_id}")
-            
-            # Get the chat manager instance - this will initialize shared resources if needed
+                raise ValueError("Chat ID not provided")
+            self.bot = get_bot(self.chat_id)
             self.chat_manager = get_chat_manager()
-            
-            # Initialize the chat instance for this session
-            self.chat_manager.create_chat(self.chat_id)
-            
-            logger.info(f"Bot initialization complete for chat {self.chat_id}")
-            
         except Exception as e:
             logger.error(f"Initialization error: {str(e)}", exc_info=True)
             raise
